@@ -1,0 +1,33 @@
+{
+  "timestamp": "2025-10-04T13:41:19.877245",
+  "duration_seconds": 3.86,
+  "ci_mode": false,
+  "test_results": [
+    {
+      "name": "Tool Availability",
+      "passed": true,
+      "duration": 1.0
+    },
+    {
+      "name": "Documentation Search",
+      "passed": true,
+      "duration": 2.67
+    },
+    {
+      "name": "Authentication Commands",
+      "passed": true,
+      "duration": 0.1
+    },
+    {
+      "name": "Error Handling",
+      "passed": true,
+      "duration": 0.09
+    }
+  ],
+  "summary": {
+    "total_tests": 4,
+    "passed": 4,
+    "failed": 0,
+    "success_rate": 100.0
+  }
+}

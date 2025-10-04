@@ -1,0 +1,187 @@
+name: Supabase Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - 'scripts/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - 'scripts/**'
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  test-connector:
+    runs-on: ubuntu-latest
+    name: Test MCP Connector
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Test MCP connector
+        run: |
+          python3 scripts/test_connector.py --ci-mode
+
+  deploy-migrations:
+    runs-on: ubuntu-latest
+    name: Deploy Database Migrations
+    needs: test-connector
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Apply migrations
+        run: |
+          python3 scripts/deploy_migrations.py --project-id ${{ vars.SUPABASE_PROJECT_ID }}
+
+      - name: Generate TypeScript types
+        run: |
+          python3 scripts/generate_types.py --project-id ${{ vars.SUPABASE_PROJECT_ID }}
+
+      - name: Commit generated types
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: update generated TypeScript types'
+          file_pattern: 'types/**'
+
+  deploy-functions:
+    runs-on: ubuntu-latest
+    name: Deploy Edge Functions
+    needs: test-connector
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Deploy Edge Functions
+        run: |
+          python3 scripts/deploy_functions.py --project-id ${{ vars.SUPABASE_PROJECT_ID }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Analysis
+    needs: deploy-migrations
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run security advisors
+        run: |
+          python3 scripts/security_scan.py --project-id ${{ vars.SUPABASE_PROJECT_ID }}
+
+      - name: Create security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: reports/security-*.json
+
+  branch-management:
+    runs-on: ubuntu-latest
+    name: Branch Management
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Create Supabase branch
+        run: |
+          python3 scripts/create_branch.py \
+            --project-id ${{ vars.SUPABASE_PROJECT_ID }} \
+            --branch-name "pr-${{ github.event.number }}" \
+            --pr-number ${{ github.event.number }}
+
+      - name: Comment PR with branch info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = `pr-${{ github.event.number }}`;
+            const comment = `🚀 **Supabase Branch Created**
+            
+            A new Supabase branch has been created for this PR:
+            - Branch name: \`${branchName}\`
+            - Database URL: Available in deployment logs
+            - API URL: Available in deployment logs
+            
+            You can test your changes against this isolated environment.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  cleanup-branch:
+    runs-on: ubuntu-latest
+    name: Cleanup Branch
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Delete Supabase branch
+        run: |
+          python3 scripts/delete_branch.py \
+            --project-id ${{ vars.SUPABASE_PROJECT_ID }} \
+            --branch-name "pr-${{ github.event.number }}"
